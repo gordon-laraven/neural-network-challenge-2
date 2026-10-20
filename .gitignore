@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local data and saved models (the dataset is loaded from a URL)
+data/
+*.csv
+*.h5
+*.keras
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

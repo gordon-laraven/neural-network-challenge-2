@@ -1,107 +1,121 @@
-# Employee Attrition Prediction Neural Network
+# Employee Attrition Early-Warning Model
 
-## Overview
-In this project, I created a branched neural network that predicts employee attrition and identifies the most suitable department for each employee within a company. The model analyzes various employee features to generate two key predictions: whether an employee is likely to leave the company (attrition) and the department to which they would best fit.
+An early-warning model that flags employees who may be at risk of leaving, so managers can check in sooner.
 
-## Background
-As part of an initiative in Human Resources, I used machine learning to support workforce planning. By analyzing employee data, HR aims to predict potential attrition and better align employees with departments that match their skills and interests.
+This is a Columbia AI bootcamp project (Module 19). It trains one neural network with two outputs: **attrition** (will this employee leave?) and **department fit** (which of three departments does this employee's profile most resemble?). It is a learning project, not a production tool, and the results below show why.
 
-## Instructions
-To preprocess the data and build the neural network model, I followed these steps:
+## Repository layout
 
-### 1. Preprocessing the Data
-```python
-# Import dependencies
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-import pandas as pd
-import numpy as np
-
-# Read employee attrition data
-attrition_df = pd.read_csv('https://static.bc-edx.com/ai/ail-v-1-0/m19/lms/datasets/attrition.csv')
-
-# Target columns
-y_df = attrition_df[['Attrition', 'Department']]
-
-# Selected features for prediction
-selected_columns = [
-    'Age', 'DistanceFromHome', 'Education', 'EnvironmentSatisfaction',
-    'JobInvolvement', 'JobLevel', 'JobSatisfaction', 'NumCompaniesWorked',
-    'PercentSalaryHike', 'TotalWorkingYears', 'WorkLifeBalance'
-]
-X_df = attrition_df[selected_columns]
-
-# Split dataset
-X_train, X_test, y_train, y_test = train_test_split(X_df, y_df)
-
-# Scale X data
-scaler = StandardScaler()
-scaled_X_train = scaler.fit_transform(X_train)
-scaled_X_test = scaler.transform(X_test)
-
-# One-Hot Encoding the Department and Attrition
-encoder_department = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
-y_train_department = encoder_department.fit_transform(y_train[['Department']])
-y_test_department = encoder_department.transform(y_test[['Department']])
-
-encoder_attrition = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
-y_train_attrition = encoder_attrition.fit_transform(y_train[['Attrition']])
-y_test_attrition = encoder_attrition.transform(y_test[['Attrition']])
+```
+.
+├── notebooks/
+│   └── employee_attrition_model.ipynb   # data prep, model, training, evaluation
+├── requirements.txt
+└── README.md
 ```
 
-### 2. Building the Model
-```python
-from tensorflow.keras import layers, Model
+## Data
 
-# Define model architecture
-num_features = len(X_train.columns)
-inputs = layers.Input(shape=(num_features,), name='inputs')
+- 1,470 employee records with 27 columns, loaded straight from the bootcamp's URL in the first cell (no local copy needed). It appears to be a version of IBM's widely used synthetic HR attrition dataset, so the people in it are not real employees.
+- The model uses 11 numeric inputs: age, distance from home, education, environment satisfaction, job involvement, job level, job satisfaction, number of companies worked for, percent salary hike, total working years and work-life balance.
+- The labels are imbalanced. **16.1%** of employees left. Departments: Research & Development 65.4%, Sales 30.3%, Human Resources 4.3%.
 
-# Shared Layers
-shared_layer_1 = layers.Dense(64, activation='relu')(inputs)
-shared_layer_2 = layers.Dense(128, activation='relu')(shared_layer_1)
+## Model
 
-# Department Branch
-department_branch = layers.Dense(32, activation='relu')(shared_layer_2)
-department_output = layers.Dense(y_train_department.shape[1], activation='sigmoid', name='department_output')(department_branch)
+- Two shared dense layers (64 → 128, ReLU), then one branch per task (32 units, ReLU) ending in an output layer.
+- Adam optimizer, 100 epochs. Losses: categorical cross-entropy for department, binary cross-entropy for attrition.
+- 75/25 train/test split (368 test employees). **No random seed is set**, so every run gives slightly different numbers.
 
-# Attrition Branch
-attrition_branch = layers.Dense(32, activation='relu')(shared_layer_2)
-attrition_output = layers.Dense(y_train_attrition.shape[1], activation='sigmoid', name='attrition_output')(attrition_branch)
+## Results (October 2026 re-run)
 
-# Create and compile model
-model = Model(inputs=inputs, outputs=[department_output, attrition_output])
-model.compile(optimizer='adam',
-              loss={'department_output': 'categorical_crossentropy', 'attrition_output': 'binary_crossentropy'},
-              metrics={'department_output': 'accuracy', 'attrition_output': 'accuracy'})
+These numbers come from re-running the notebook top to bottom. To see how much they move between runs, I also ran the same pipeline five more times outside the notebook. The "baseline" column is what you would get by always guessing the most common answer.
+
+| Task | Notebook run | 5 extra runs (range) | Always guess the most common answer |
+|---|---|---|---|
+| Attrition accuracy | 79.9% | 76.9% – 80.2% | 79.3% in the notebook run (79.6% – 84.0% across the extra runs) |
+| Leavers actually caught (recall on "Yes") | 22 of 76 (29%) | 16% – 29% | 0% |
+| Department-fit accuracy | 60.1% | 54.9% – 64.4% | 65.8% in the notebook run (63.6% – 68.2% across the extra runs) |
+
+What the notebook run shows in more detail:
+
+- **Attrition:** of the 76 test employees who actually left, the model flagged 22 and missed 54. Of the 42 employees it flagged, 22 (52%) actually left.
+- **Department fit:** recall by department was R&D 76%, Sales 34% and Human Resources 6% (1 of 18).
+
+### How to read this
+
+**Attrition.** The 80% accuracy sounds good, but about 80% of employees stay, so a rule that always says "No one is leaving" scores about the same. Accuracy hides the part that matters: the model misses roughly 7 out of 10 people who actually leave. As an early-warning signal it is weak. It finds some at-risk employees, but it should not be used to reassure anyone that an employee *isn't* at risk.
+
+**Department fit is not reliable.** Accuracy was 60.1% in the notebook run and 55% – 64% across the repeat runs. That is **worse than always guessing "Research & Development"** (about 66%). In practice it recognises R&D profiles, sometimes recognises Sales and almost never recognises Human Resources. Likely reasons:
+
+- None of the 11 inputs describe what someone does or is good at (role, skills, education field). They describe tenure, satisfaction and commute, which say little about department.
+- Human Resources has only about 63 employees in the whole dataset, too few to learn from.
+- The model overfits. Training accuracy reached nearly 100% while test accuracy stayed near 60%.
+- The output layer uses `sigmoid` with categorical cross-entropy. For choosing one of three departments, `softmax` is the standard choice. I have left this unchanged so the results match the original project, and it is noted under "Possible improvements".
+
+I would not use the department-fit output for anything beyond showing the technique.
+
+### Differences from the original notebook
+
+- The original notebook reported **Attrition 80.2%** and **Department 59.8%**. The re-run gives 79.9% and 60.1%, within normal run-to-run variation because there is no random seed.
+- With current Keras (3.15), `model.evaluate` returns its results in a different order. The original print cell then labelled two **loss** values as accuracies ("Department Accuracy: 1.79"). I fixed it to look metrics up by name. The model and the data are unchanged.
+- I added a "Sanity check" section at the end of the notebook with the baselines, confusion matrix and per-class results above. It does not change the model.
+- The original README answer said sigmoid is "appropriate for multi-class" classification. For picking one department out of three, softmax is the better fit, so that answer has been corrected below.
+
+## What this means for a client
+
+**The AI points; a manager decides.**
+
+At best, a model like this is a prompt to start a conversation. It is never a verdict. The right order is:
+
+1. **First Brain: human judgment.** The manager knows the person, the context and what is going on in their life and work. That comes first.
+2. **Third Brain: AI as a second look.** The model can suggest "you may want to check in with this person sooner." The manager decides whether that makes sense and what, if anything, to do.
+
+In its current state this model misses most people who leave. A client should treat a "not flagged" result as meaningless, and treat a "flagged" result as a reason to listen, not to act.
+
+## Limitations
+
+- Small, imbalanced, synthetic dataset. The results do not carry over to any real company without retraining and validating on that company's own data.
+- Accuracy is the wrong headline metric for both tasks because of class imbalance. Recall on leavers and comparison with a baseline matter more.
+- No random seed, no validation split, no early stopping and no hyperparameter tuning, so the results are noisy and the model overfits.
+- Only 11 of the 26 available features are used. Features known to relate to attrition in this dataset, such as overtime, job role and marital status, were left out because they are not numeric.
+- The model gives no explanation for an individual prediction.
+
+## Ethics note
+
+**This kind of model should never be the sole basis for an HR decision.** That covers hiring, firing, promotion, pay, reassignment and how someone is treated.
+
+- Being "flagged" is a statistical guess, not a fact about a person. Acting on it alone risks self-fulfilling outcomes, such as an employee being passed over because a model said they might leave.
+- Inputs such as age and marital status can stand in for protected characteristics. Any real use would need a fairness review, legal and HR sign-off, and clear communication to employees about what data is used and why.
+- People affected by a decision should be able to understand it and challenge it. This model cannot explain itself.
+- Use it to start supportive check-ins, not to rank, monitor or penalise people.
+
+## Possible improvements
+
+- Use `softmax` for the department output, and set a random seed so results can be reproduced.
+- Add a validation split with early stopping and dropout to reduce overfitting.
+- Handle class imbalance with class weights or resampling, and tune the attrition decision threshold to catch more leavers.
+- Encode and include categorical features (overtime, job role, business travel, marital status), with a fairness check on sensitive ones.
+- Compare against a simple logistic regression. On data this small it may do as well as the neural network or better, and it is easier to explain.
+
+## Summary questions (from the original assignment)
+
+1. **Is accuracy the best metric?** No. About 84% of employees stay and about 65% are in R&D, so a model can reach high accuracy just by guessing the majority answer. Recall and precision on the "Yes" attrition class, per-class results and a comparison with a baseline give a truer picture.
+2. **Which output activations?** The project used `sigmoid` for both outputs. That works for the two-class attrition output. For department, where an employee belongs to exactly one of three classes, `softmax` would be more appropriate.
+3. **How could the model be improved?** See "Possible improvements" above.
+
+## How to run
+
+```bash
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+jupyter notebook notebooks/employee_attrition_model.ipynb
 ```
 
-### 3. Training the Model
-```python
-# Train the model
-model.fit(scaled_X_train, {'department_output': y_train_department, 'attrition_output': y_train_attrition}, epochs=100)
-```
-
-### 4. Evaluating the Model
-```python
-# Evaluate model
-test_results = model.evaluate(scaled_X_test, {'department_output': y_test_department, 'attrition_output': y_test_attrition})
-print(f'Department Accuracy: {test_results[2]}')
-print(f'Attrition Accuracy: {test_results[1]}')
-```
-
-## Summary Questions
-1. **Is accuracy the best metric to use on this data? Why or why not?**
-    - Accuracy might not be the best metric due to potential class imbalance in the target categories, leading to misleading representations of model performance. Alternative metrics like precision, recall, F1-score, or AUC-ROC may provide better insights.
-
-2. **What activation functions did you choose for your output layers, and why?**
-    - I used the 'sigmoid' activation function for both output layers, as it is appropriate for multi-class binary classification, allowing the model to output a probability distribution across predicted classes.
-
-3. **Can you name a few ways that this model could be improved?**
-    - Possible improvements include modifying the architecture by adding hidden layers, tuning hyperparameters, experimenting with different activation functions, and addressing potential class imbalance.
+The notebook downloads its data from `static.bc-edx.com`, so it needs internet access. Expect your numbers to differ slightly from the ones above.
 
 ## Sources
-- [Scikit-learn Documentation](https://scikit-learn.org/stable/documentation.html)
-- [Pandas Documentation](https://pandas.pydata.org/pandas-docs/stable/documentation.html)
-- [TensorFlow Documentation](https://www.tensorflow.org/api_docs/python/tf/keras) 
 
+- [scikit-learn documentation](https://scikit-learn.org/stable/)
+- [pandas documentation](https://pandas.pydata.org/docs/)
+- [TensorFlow / Keras documentation](https://www.tensorflow.org/api_docs/python/tf/keras)
